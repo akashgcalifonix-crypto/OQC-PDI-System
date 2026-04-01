@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDI - Ultra Fast Mode</title>
+    <style>
+        :root { 
+            --primary: #2563eb; --success: #16a34a; --danger: #dc2626; 
+            --warning: #ca8a04; --deviation-bg: #fef9c3; --bg: #f1f5f9; 
+        }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 0; overflow-x: hidden; }
+        header { background: white; padding: 0.5rem 2rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .logo-box img { height: 50px; }
+        .container { max-width: 800px; margin: 20px auto; padding: 0 20px; }
+        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); text-align: center; }
+        input { width: 100%; height: 80px; font-size: 3rem; text-align: center; border: 4px solid var(--primary); border-radius: 15px; outline: none; background: #fff; font-family: monospace; }
+        
+        #pdiResult { margin-top: 20px; padding: 30px; border-radius: 12px; font-weight: 800; display: none; font-size: 4rem; text-transform: uppercase; }
+        .defect-text { display: block; font-size: 1.5rem; margin-top: 10px; opacity: 0.8; text-transform: none; }
+
+        .sync-status { font-size: 0.8rem; color: #64748b; margin-top: 10px; font-weight: bold; }
+        .history-item { 
+            background: white; display: flex; justify-content: space-between; padding: 15px 25px; 
+            margin-bottom: 8px; border-radius: 8px; border-left: 10px solid #cbd5e1; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .history-item.Pass { border-left-color: var(--success); }
+        .history-item.Deviation { border-left-color: #facc15; }
+        .history-item.Fail { border-left-color: var(--danger); }
+        .h-carton { font-family: monospace; font-weight: bold; font-size: 1.4rem; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo-box"><img src="https://i.postimg.cc/5y7SN4xc/logo.png" alt="CALIFONIX"></div>
+    <div style="text-align:right">
+        <h1 style="margin:0; color: var(--primary);">PDI INSTANT</h1>
+        <div id="syncIndicator" class="sync-status">⏳ Initializing Database...</div>
+    </div>
+</header>
+
+<div class="container">
+    <div class="card">
+        <input type="text" id="pdiScan" placeholder="SCAN NOW" onkeypress="handlePDIEnter(event)" autofocus>
+        <div id="pdiResult"></div>
+    </div>
+
+    <div style="margin-top:30px">
+        <div style="font-weight:bold; color:#64748b; margin-bottom:10px;">RECENT HISTORY</div>
+        <div id="historyList"></div>
+    </div>
+</div>
+
+<script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbweuUtUlSy9nEuToqqVhiUPVlPH6Q44agLSW9b3TDHu2LEgoSYDCRQfa3Irf4I_2tg0/exec";
+    
+    let localDatabase = []; // This stores everything for nano-second search
+
+    // 1. Fetch ALL data on load and every 30 seconds
+    async function syncDatabase() {
+        const indicator = document.getElementById("syncIndicator");
+        try {
+            const response = await fetch(`${SCRIPT_URL}?action=getAllData`);
+            const data = await response.json();
+            localDatabase = data;
+            indicator.innerText = "● DATABASE LIVE (" + localDatabase.length + " Records)";
+            indicator.style.color = "green";
+        } catch (e) {
+            indicator.innerText = "❌ Sync Error - Retrying...";
+            indicator.style.color = "red";
+        }
+    }
+
+    // Initial load
+    syncDatabase();
+    // Background sync every 30 seconds (won't interrupt scanning)
+    setInterval(syncDatabase, 30000);
+
+    function handlePDIEnter(e) {
+        if (e.key === "Enter") {
+            const val = e.target.value.trim().toUpperCase();
+            if (val) instantSearch(val);
+            e.target.value = "";
+        }
+    }
+
+    function instantSearch(cartonID) {
+        const resultDiv = document.getElementById("pdiResult");
+        
+        // NANO-SECOND SEARCH (Local Array Search)
+        const record = localDatabase.find(item => item.carton === cartonID);
+
+        resultDiv.style.display = "block";
+
+        if (!record) {
+            resultDiv.style.background = "#e2e8f0"; resultDiv.style.color = "#475569";
+            resultDiv.innerHTML = "⚠️ NOT FOUND<span class='defect-text'>Scan again or check OQC</span>";
+        } else {
+            const status = record.status;
+            const defect = record.reason || "No detail";
+
+            if (status === "Deviation") {
+                resultDiv.style.background = "var(--deviation-bg)"; 
+                resultDiv.style.color = "#854d0e";
+                resultDiv.innerHTML = "✅ PASS (DEV)<span class='defect-text'>" + defect + "</span>";
+            } else if (status === "Fail") {
+                resultDiv.style.background = "#fee2e2"; 
+                resultDiv.style.color = "var(--danger)";
+                resultDiv.innerHTML = "❌ FAIL<span class='defect-text'>" + defect + "</span>";
+            } else {
+                resultDiv.style.background = "#dcfce7"; 
+                resultDiv.style.color = "var(--success)";
+                resultDiv.innerHTML = "✅ PASS";
+            }
+            addToHistory(cartonID, status, defect);
+        }
+    }
+
+    function addToHistory(carton, status, defect) {
+        const list = document.getElementById("historyList");
+        const time = new Date().toLocaleTimeString();
+        const item = document.createElement("div");
+        item.className = `history-item ${status}`;
+        item.innerHTML = `
+            <div>
+                <div class="h-carton">${carton}</div>
+                <div style="font-size:0.8rem; color:#64748b">${status === 'Pass' ? '' : defect}</div>
+            </div>
+            <div style="text-align:right">
+                <div style="font-weight:bold; color:${status === 'Fail' ? 'red' : (status === 'Deviation' ? '#ca8a04' : 'green')}">${status.toUpperCase()}</div>
+                <div style="font-size:0.7rem">${time}</div>
+            </div>
+        `;
+        if (list.children.length > 4) list.removeChild(list.lastChild);
+        list.prepend(item);
+    }
+</script>
+</body>
+</html>
